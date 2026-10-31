@@ -1,0 +1,230 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "families": {
+      "$family": {
+        "members": {
+          ".read": "auth != null && (auth.uid == root.child('families').child($family).child('ownerUid').val() || auth.uid == root.child('families').child($family).child('partnerUid').val())",
+          ".write": false,
+          "$uid": {
+            ".read": "auth != null && auth.uid == $uid",
+            ".write": "auth != null && auth.uid == root.child('families').child($family).child('ownerUid').val() && $uid != root.child('families').child($family).child('ownerUid').val() && ((!data.exists() && newData.val() == true && $uid == root.child('families').child($family).child('enrollment/pending/uid').val() && (!root.child('families').child($family).child('partnerUid').exists() && root.child('families').child($family).child('enrollment/invite/state').val() == 'open' && root.child('families').child($family).child('enrollment/invite/expiresAt').val() > now && root.child('families').child($family).child('enrollment/pending/nonce').val() == root.child('families').child($family).child('enrollment/invite/nonce').val() && root.child('families').child($family).child('enrollment/pending').exists() && newData.parent().parent().child('partnerUid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().parent().child('members').child(root.child('families').child($family).child('enrollment/pending/uid').val()).val() == true && newData.parent().parent().child('enrollment/invite/state').val() == 'used' && !newData.parent().parent().child('enrollment/info').exists() && !newData.parent().parent().child('enrollment/pending').exists() && newData.parent().parent().child('enrollment/approval/uid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().parent().child('enrollment/approval/nonce').val() == root.child('families').child($family).child('enrollment/pending/nonce').val() && newData.parent().parent().child('enrollment/approval/challenge').val() == root.child('families').child($family).child('enrollment/pending/challenge').val() && newData.parent().parent().child('enrollment/approval/approvedAt').val() >= now - 10000 && newData.parent().parent().child('enrollment/approval/approvedAt').val() <= now + 1000)) || (data.val() == true && !newData.exists() && $uid == root.child('families').child($family).child('partnerUid').val() && (root.child('families').child($family).child('partnerUid').exists() && !newData.parent().parent().child('partnerUid').exists() && !newData.parent().parent().child('members').child(root.child('families').child($family).child('partnerUid').val()).exists() && !newData.parent().parent().child('enrollment').exists())))",
+            ".validate": "newData.val() == true && ($uid == newData.parent().parent().child('ownerUid').val() || $uid == newData.parent().parent().child('partnerUid').val())"
+          }
+        },
+        "call": {
+          ".read": "auth != null && (auth.uid == root.child('families').child($family).child('ownerUid').val() || auth.uid == root.child('families').child($family).child('partnerUid').val())",
+          ".write": "auth != null && (auth.uid == root.child('families').child($family).child('ownerUid').val() || auth.uid == root.child('families').child($family).child('partnerUid').val()) && newData.exists() && (!data.exists() || data.child('status/value').val() == 'ended' || data.child('expiresAt').val() <= now || (data.child('status/value').val() == 'ringing' && data.child('createdAt').val() + 45000 <= now)) && newData.child('id').val() != data.child('id').val() && newData.child('caller').val() == auth.uid && newData.child('status/value').val() == 'ringing' && newData.child('createdAt').val() >= now - 10000 && newData.child('createdAt').val() <= now + 1000 && newData.child('expiresAt').val() > now && newData.child('expiresAt').val() <= now + 7200000 && !newData.hasChild('offer') && !newData.hasChild('answer') && !newData.hasChild('ice') && !newData.hasChild('restartRequested')",
+          ".validate": "newData.hasChildren(['id','caller','callee','createdAt','expiresAt','video','status']) && newData.child('caller').val() != newData.child('callee').val() && (newData.child('caller').val() == root.child('families').child($family).child('ownerUid').val() || newData.child('caller').val() == root.child('families').child($family).child('partnerUid').val()) && (newData.child('callee').val() == root.child('families').child($family).child('ownerUid').val() || newData.child('callee').val() == root.child('families').child($family).child('partnerUid').val()) && newData.child('status/callId').val() == newData.child('id').val()",
+          "id": {
+            ".validate": "newData.isString() && newData.val().matches(/^[a-f0-9-]{36}$/)"
+          },
+          "caller": {
+            ".validate": "newData.isString() && newData.val().length <= 128"
+          },
+          "callee": {
+            ".validate": "newData.isString() && newData.val().length <= 128"
+          },
+          "createdAt": {
+            ".validate": "newData.isNumber()"
+          },
+          "expiresAt": {
+            ".validate": "newData.isNumber() && newData.val() > newData.parent().child('createdAt').val() && newData.val() <= newData.parent().child('createdAt').val() + 7200000"
+          },
+          "video": {
+            ".validate": "newData.isBoolean()"
+          },
+          "status": {
+            ".write": "auth != null && (auth.uid == root.child('families').child($family).child('ownerUid').val() || auth.uid == root.child('families').child($family).child('partnerUid').val()) && (auth.uid == root.child('families').child($family).child('call').child('caller').val() || auth.uid == root.child('families').child($family).child('call').child('callee').val()) && newData.exists() && newData.child('callId').val() == root.child('families').child($family).child('call').child('id').val() && data.child('callId').val() == newData.child('callId').val() && ((data.child('value').val() == 'ringing' && newData.child('value').val() == 'accepted' && auth.uid == root.child('families').child($family).child('call').child('callee').val() && root.child('families').child($family).child('call').child('createdAt').val() + 45000 > now && root.child('families').child($family).child('call').child('expiresAt').val() > now) || ((data.child('value').val() == 'ringing' || data.child('value').val() == 'accepted') && newData.child('value').val() == 'ended'))",
+            ".validate": "newData.hasChildren(['callId','value'])",
+            "callId": {
+              ".validate": "newData.isString() && newData.val() == newData.parent().parent().child('id').val()"
+            },
+            "value": {
+              ".validate": "newData.val() == 'ringing' || newData.val() == 'accepted' || newData.val() == 'ended'"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "offer": {
+            ".write": "auth != null && (auth.uid == root.child('families').child($family).child('ownerUid').val() || auth.uid == root.child('families').child($family).child('partnerUid').val()) && root.child('families').child($family).child('call').child('expiresAt').val() > now && root.child('families').child($family).child('call').child('status/value').val() == 'accepted' && auth.uid == root.child('families').child($family).child('call').child('caller').val() && newData.exists() && newData.child('callId').val() == root.child('families').child($family).child('call').child('id').val() && ((!data.exists() && newData.child('revision').val() == 1) || (data.exists() && newData.child('revision').val() == data.child('revision').val() + 1 && root.child('families').child($family).child('call').child('answer/revision').val() == data.child('revision').val()))",
+            ".validate": "newData.hasChildren(['callId','revision','sdp'])",
+            "callId": {
+              ".validate": "newData.isString() && newData.val().length == 36"
+            },
+            "revision": {
+              ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 32 && newData.val() % 1 == 0"
+            },
+            "sdp": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 65536"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "answer": {
+            ".write": "auth != null && (auth.uid == root.child('families').child($family).child('ownerUid').val() || auth.uid == root.child('families').child($family).child('partnerUid').val()) && root.child('families').child($family).child('call').child('expiresAt').val() > now && root.child('families').child($family).child('call').child('status/value').val() == 'accepted' && auth.uid == root.child('families').child($family).child('call').child('callee').val() && newData.exists() && newData.child('callId').val() == root.child('families').child($family).child('call').child('id').val() && newData.child('revision').val() == root.child('families').child($family).child('call').child('offer/revision').val() && (!data.exists() || newData.child('revision').val() > data.child('revision').val())",
+            ".validate": "newData.hasChildren(['callId','revision','sdp'])",
+            "callId": {
+              ".validate": "newData.isString() && newData.val().length == 36"
+            },
+            "revision": {
+              ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 32 && newData.val() % 1 == 0"
+            },
+            "sdp": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 65536"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "restartRequested": {
+            ".write": "auth != null && (auth.uid == root.child('families').child($family).child('ownerUid').val() || auth.uid == root.child('families').child($family).child('partnerUid').val()) && root.child('families').child($family).child('call').child('expiresAt').val() > now && root.child('families').child($family).child('call').child('status/value').val() == 'accepted' && auth.uid == root.child('families').child($family).child('call').child('callee').val() && newData.exists() && newData.child('callId').val() == root.child('families').child($family).child('call').child('id').val() && newData.child('revision').val() == root.child('families').child($family).child('call').child('offer/revision').val() && (!data.exists() || newData.child('revision').val() > data.child('revision').val())",
+            ".validate": "newData.hasChildren(['callId','revision'])",
+            "callId": {
+              ".validate": "newData.isString() && newData.val().length == 36"
+            },
+            "revision": {
+              ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 32 && newData.val() % 1 == 0"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "ice": {
+            "$uid": {
+              "$slot": {
+                ".write": "auth != null && (auth.uid == root.child('families').child($family).child('ownerUid').val() || auth.uid == root.child('families').child($family).child('partnerUid').val()) && root.child('families').child($family).child('call').child('expiresAt').val() > now && root.child('families').child($family).child('call').child('status/value').val() == 'accepted' && auth.uid == $uid && ($uid == root.child('families').child($family).child('call').child('caller').val() || $uid == root.child('families').child($family).child('call').child('callee').val()) && newData.exists() && newData.child('callId').val() == root.child('families').child($family).child('call').child('id').val() && newData.child('revision').val() == root.child('families').child($family).child('call').child('offer/revision').val() && (!data.exists() || newData.child('revision').val() > data.child('revision').val())",
+                ".validate": "$slot.matches(/^c([0-5][0-9]|6[0-3])$/) && newData.hasChildren(['callId','revision','mid','line','sdp'])",
+                "callId": {
+                  ".validate": "newData.isString() && newData.val().length == 36"
+                },
+                "revision": {
+                  ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 32 && newData.val() % 1 == 0"
+                },
+                "mid": {
+                  ".validate": "newData.isString() && newData.val().length <= 64"
+                },
+                "line": {
+                  ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 32 && newData.val() % 1 == 0"
+                },
+                "sdp": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2048"
+                },
+                "$other": {
+                  ".validate": false
+                }
+              }
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "$other": {
+          ".validate": false
+        },
+        ".validate": "newData.hasChildren(['ownerUid','members']) && newData.child('ownerUid').val() == data.child('ownerUid').val() && newData.child('members').child(data.child('ownerUid').val()).val() == true && (!newData.child('partnerUid').exists() || (newData.child('partnerUid').isString() && newData.child('partnerUid').val() != newData.child('ownerUid').val() && newData.child('members').child(newData.child('partnerUid').val()).val() == true))",
+        "ownerUid": {
+          ".read": "auth != null",
+          ".write": false,
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128 && newData.val() == data.val()"
+        },
+        "partnerUid": {
+          ".read": "auth != null && (auth.uid == root.child('families').child($family).child('ownerUid').val() || auth.uid == data.val())",
+          ".write": "auth != null && auth.uid == root.child('families').child($family).child('ownerUid').val() && ((!data.exists() && newData.isString() && (!root.child('families').child($family).child('partnerUid').exists() && root.child('families').child($family).child('enrollment/invite/state').val() == 'open' && root.child('families').child($family).child('enrollment/invite/expiresAt').val() > now && root.child('families').child($family).child('enrollment/pending/nonce').val() == root.child('families').child($family).child('enrollment/invite/nonce').val() && root.child('families').child($family).child('enrollment/pending').exists() && newData.parent().child('partnerUid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().child('members').child(root.child('families').child($family).child('enrollment/pending/uid').val()).val() == true && newData.parent().child('enrollment/invite/state').val() == 'used' && !newData.parent().child('enrollment/info').exists() && !newData.parent().child('enrollment/pending').exists() && newData.parent().child('enrollment/approval/uid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().child('enrollment/approval/nonce').val() == root.child('families').child($family).child('enrollment/pending/nonce').val() && newData.parent().child('enrollment/approval/challenge').val() == root.child('families').child($family).child('enrollment/pending/challenge').val() && newData.parent().child('enrollment/approval/approvedAt').val() >= now - 10000 && newData.parent().child('enrollment/approval/approvedAt').val() <= now + 1000)) || (data.exists() && !newData.exists() && (root.child('families').child($family).child('partnerUid').exists() && !newData.parent().child('partnerUid').exists() && !newData.parent().child('members').child(root.child('families').child($family).child('partnerUid').val()).exists() && !newData.parent().child('enrollment').exists())))",
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+        },
+        "enrollment": {
+          ".read": "auth != null && auth.uid == root.child('families').child($family).child('ownerUid').val()",
+          ".write": "auth != null && auth.uid == root.child('families').child($family).child('ownerUid').val() && !newData.exists()",
+          ".validate": "newData.hasChild('invite') && ((newData.child('invite/state').val() == 'open' && newData.hasChild('info') && newData.child('info/nonce').val() == newData.child('invite/nonce').val() && newData.child('info/expiresAt').val() == newData.child('invite/expiresAt').val() && !newData.hasChild('approval') && !newData.parent().hasChild('partnerUid')) || (newData.child('invite/state').val() == 'used' && newData.hasChild('approval') && newData.child('approval/uid').val() == newData.parent().child('partnerUid').val() && !newData.hasChild('info') && !newData.hasChild('pending')))",
+          "invite": {
+            ".write": "auth != null && auth.uid == root.child('families').child($family).child('ownerUid').val() && newData.exists() && (!root.child('families').child($family).child('partnerUid').exists() && !newData.parent().parent().child('partnerUid').exists() && newData.parent().parent().child('enrollment/invite/state').val() == 'open' && newData.parent().parent().child('enrollment/invite/nonce').val() != root.child('families').child($family).child('enrollment/invite/nonce').val() && newData.parent().parent().child('enrollment/info/nonce').val() == newData.parent().parent().child('enrollment/invite/nonce').val() && newData.parent().parent().child('enrollment/info/expiresAt').val() == newData.parent().parent().child('enrollment/invite/expiresAt').val() && !newData.parent().parent().child('enrollment/pending').exists() && !newData.parent().parent().child('enrollment/approval').exists()) && newData.child('createdAt').val() >= now - 10000 && newData.child('createdAt').val() <= now + 1000 && newData.child('expiresAt').val() > now && newData.child('expiresAt').val() <= now + 300000",
+            ".validate": "newData.hasChildren(['nonce','code','createdAt','expiresAt','state'])",
+            "nonce": {
+              ".validate": "newData.isString() && newData.val().matches(/^[a-f0-9]{32}$/)"
+            },
+            "code": {
+              ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)"
+            },
+            "createdAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "expiresAt": {
+              ".validate": "newData.isNumber() && newData.val() > newData.parent().child('createdAt').val() && newData.val() <= newData.parent().child('createdAt').val() + 300000"
+            },
+            "state": {
+              ".write": "auth != null && auth.uid == root.child('families').child($family).child('ownerUid').val() && data.val() == 'open' && newData.val() == 'used' && (!root.child('families').child($family).child('partnerUid').exists() && root.child('families').child($family).child('enrollment/invite/state').val() == 'open' && root.child('families').child($family).child('enrollment/invite/expiresAt').val() > now && root.child('families').child($family).child('enrollment/pending/nonce').val() == root.child('families').child($family).child('enrollment/invite/nonce').val() && root.child('families').child($family).child('enrollment/pending').exists() && newData.parent().parent().parent().child('partnerUid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().parent().parent().child('members').child(root.child('families').child($family).child('enrollment/pending/uid').val()).val() == true && newData.parent().parent().parent().child('enrollment/invite/state').val() == 'used' && !newData.parent().parent().parent().child('enrollment/info').exists() && !newData.parent().parent().parent().child('enrollment/pending').exists() && newData.parent().parent().parent().child('enrollment/approval/uid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().parent().parent().child('enrollment/approval/nonce').val() == root.child('families').child($family).child('enrollment/pending/nonce').val() && newData.parent().parent().parent().child('enrollment/approval/challenge').val() == root.child('families').child($family).child('enrollment/pending/challenge').val() && newData.parent().parent().parent().child('enrollment/approval/approvedAt').val() >= now - 10000 && newData.parent().parent().parent().child('enrollment/approval/approvedAt').val() <= now + 1000)",
+              ".validate": "newData.val() == 'open' || newData.val() == 'used'"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "info": {
+            ".read": "auth != null",
+            ".write": "auth != null && auth.uid == root.child('families').child($family).child('ownerUid').val() && ((newData.exists() && (!root.child('families').child($family).child('partnerUid').exists() && !newData.parent().parent().child('partnerUid').exists() && newData.parent().parent().child('enrollment/invite/state').val() == 'open' && newData.parent().parent().child('enrollment/invite/nonce').val() != root.child('families').child($family).child('enrollment/invite/nonce').val() && newData.parent().parent().child('enrollment/info/nonce').val() == newData.parent().parent().child('enrollment/invite/nonce').val() && newData.parent().parent().child('enrollment/info/expiresAt').val() == newData.parent().parent().child('enrollment/invite/expiresAt').val() && !newData.parent().parent().child('enrollment/pending').exists() && !newData.parent().parent().child('enrollment/approval').exists())) || (!newData.exists() && (!root.child('families').child($family).child('partnerUid').exists() && root.child('families').child($family).child('enrollment/invite/state').val() == 'open' && root.child('families').child($family).child('enrollment/invite/expiresAt').val() > now && root.child('families').child($family).child('enrollment/pending/nonce').val() == root.child('families').child($family).child('enrollment/invite/nonce').val() && root.child('families').child($family).child('enrollment/pending').exists() && newData.parent().parent().child('partnerUid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().parent().child('members').child(root.child('families').child($family).child('enrollment/pending/uid').val()).val() == true && newData.parent().parent().child('enrollment/invite/state').val() == 'used' && !newData.parent().parent().child('enrollment/info').exists() && !newData.parent().parent().child('enrollment/pending').exists() && newData.parent().parent().child('enrollment/approval/uid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().parent().child('enrollment/approval/nonce').val() == root.child('families').child($family).child('enrollment/pending/nonce').val() && newData.parent().parent().child('enrollment/approval/challenge').val() == root.child('families').child($family).child('enrollment/pending/challenge').val() && newData.parent().parent().child('enrollment/approval/approvedAt').val() >= now - 10000 && newData.parent().parent().child('enrollment/approval/approvedAt').val() <= now + 1000)))",
+            ".validate": "newData.hasChildren(['nonce','expiresAt'])",
+            "nonce": {
+              ".validate": "newData.isString() && newData.val().matches(/^[a-f0-9]{32}$/)"
+            },
+            "expiresAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "pending": {
+            ".read": "auth != null && (auth.uid == root.child('families').child($family).child('ownerUid').val() || auth.uid == data.child('uid').val())",
+            ".write": "(auth != null && auth.uid != root.child('families').child($family).child('ownerUid').val() && !data.exists() && newData.exists() && !root.child('families').child($family).child('partnerUid').exists() && root.child('families').child($family).child('enrollment/invite/state').val() == 'open' && root.child('families').child($family).child('enrollment/invite/expiresAt').val() > now && newData.child('uid').val() == auth.uid && newData.child('nonce').val() == root.child('families').child($family).child('enrollment/invite/nonce').val() && newData.child('code').val() == root.child('families').child($family).child('enrollment/invite/code').val() && newData.child('createdAt').val() >= now - 10000 && newData.child('createdAt').val() <= now + 1000) || (auth != null && auth.uid == root.child('families').child($family).child('ownerUid').val() && !newData.exists() && ((!root.child('families').child($family).child('partnerUid').exists() && root.child('families').child($family).child('enrollment/invite/state').val() == 'open' && root.child('families').child($family).child('enrollment/invite/expiresAt').val() > now && root.child('families').child($family).child('enrollment/pending/nonce').val() == root.child('families').child($family).child('enrollment/invite/nonce').val() && root.child('families').child($family).child('enrollment/pending').exists() && newData.parent().parent().child('partnerUid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().parent().child('members').child(root.child('families').child($family).child('enrollment/pending/uid').val()).val() == true && newData.parent().parent().child('enrollment/invite/state').val() == 'used' && !newData.parent().parent().child('enrollment/info').exists() && !newData.parent().parent().child('enrollment/pending').exists() && newData.parent().parent().child('enrollment/approval/uid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().parent().child('enrollment/approval/nonce').val() == root.child('families').child($family).child('enrollment/pending/nonce').val() && newData.parent().parent().child('enrollment/approval/challenge').val() == root.child('families').child($family).child('enrollment/pending/challenge').val() && newData.parent().parent().child('enrollment/approval/approvedAt').val() >= now - 10000 && newData.parent().parent().child('enrollment/approval/approvedAt').val() <= now + 1000) || (!root.child('families').child($family).child('partnerUid').exists() && !newData.parent().parent().child('partnerUid').exists() && newData.parent().parent().child('enrollment/invite/state').val() == 'open' && newData.parent().parent().child('enrollment/invite/nonce').val() != root.child('families').child($family).child('enrollment/invite/nonce').val() && newData.parent().parent().child('enrollment/info/nonce').val() == newData.parent().parent().child('enrollment/invite/nonce').val() && newData.parent().parent().child('enrollment/info/expiresAt').val() == newData.parent().parent().child('enrollment/invite/expiresAt').val() && !newData.parent().parent().child('enrollment/pending').exists() && !newData.parent().parent().child('enrollment/approval').exists())))",
+            ".validate": "newData.hasChildren(['uid','nonce','code','challenge','createdAt'])",
+            "uid": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+            },
+            "nonce": {
+              ".validate": "newData.isString() && newData.val().matches(/^[a-f0-9]{32}$/)"
+            },
+            "code": {
+              ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)"
+            },
+            "challenge": {
+              ".validate": "newData.isString() && newData.val().matches(/^[a-f0-9]{32}$/)"
+            },
+            "createdAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "approval": {
+            ".write": "auth != null && auth.uid == root.child('families').child($family).child('ownerUid').val() && ((newData.exists() && (!root.child('families').child($family).child('partnerUid').exists() && root.child('families').child($family).child('enrollment/invite/state').val() == 'open' && root.child('families').child($family).child('enrollment/invite/expiresAt').val() > now && root.child('families').child($family).child('enrollment/pending/nonce').val() == root.child('families').child($family).child('enrollment/invite/nonce').val() && root.child('families').child($family).child('enrollment/pending').exists() && newData.parent().parent().child('partnerUid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().parent().child('members').child(root.child('families').child($family).child('enrollment/pending/uid').val()).val() == true && newData.parent().parent().child('enrollment/invite/state').val() == 'used' && !newData.parent().parent().child('enrollment/info').exists() && !newData.parent().parent().child('enrollment/pending').exists() && newData.parent().parent().child('enrollment/approval/uid').val() == root.child('families').child($family).child('enrollment/pending/uid').val() && newData.parent().parent().child('enrollment/approval/nonce').val() == root.child('families').child($family).child('enrollment/pending/nonce').val() && newData.parent().parent().child('enrollment/approval/challenge').val() == root.child('families').child($family).child('enrollment/pending/challenge').val() && newData.parent().parent().child('enrollment/approval/approvedAt').val() >= now - 10000 && newData.parent().parent().child('enrollment/approval/approvedAt').val() <= now + 1000)) || (!newData.exists() && (!root.child('families').child($family).child('partnerUid').exists() && !newData.parent().parent().child('partnerUid').exists() && newData.parent().parent().child('enrollment/invite/state').val() == 'open' && newData.parent().parent().child('enrollment/invite/nonce').val() != root.child('families').child($family).child('enrollment/invite/nonce').val() && newData.parent().parent().child('enrollment/info/nonce').val() == newData.parent().parent().child('enrollment/invite/nonce').val() && newData.parent().parent().child('enrollment/info/expiresAt').val() == newData.parent().parent().child('enrollment/invite/expiresAt').val() && !newData.parent().parent().child('enrollment/pending').exists() && !newData.parent().parent().child('enrollment/approval').exists())))",
+            ".validate": "newData.hasChildren(['uid','nonce','challenge','approvedAt'])",
+            "uid": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+            },
+            "nonce": {
+              ".validate": "newData.isString() && newData.val().matches(/^[a-f0-9]{32}$/)"
+            },
+            "challenge": {
+              ".validate": "newData.isString() && newData.val().matches(/^[a-f0-9]{32}$/)"
+            },
+            "approvedAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    }
+  }
+}

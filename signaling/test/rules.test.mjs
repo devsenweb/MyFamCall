@@ -9,7 +9,7 @@ const family = 'families/private-family';
 const path = `${family}/call`;
 const id1 = '11111111-1111-4111-a111-111111111111';
 const id2 = '22222222-2222-4222-a222-222222222222';
-const db = uid => uid ? env.authenticatedContext(uid, { email_verified: true }).database() : env.unauthenticatedContext().database();
+const db = uid => uid ? env.authenticatedContext(uid).database() : env.unauthenticatedContext().database();
 const at = (uid, child = '') => ref(db(uid), path + (child ? '/' + child : ''));
 function call(id = id1, caller = 'senthil', callee = 'shalini', options = {}) {
   const now = Date.now();
@@ -28,11 +28,11 @@ before(async () => {
 });
 beforeEach(async () => {
   await env.clearDatabase();
-  await env.withSecurityRulesDisabled(ctx => set(ref(ctx.database(),family+'/members'),{senthil:true,shalini:true}));
+  await env.withSecurityRulesDisabled(ctx => set(ref(ctx.database(),family),{ownerUid:'senthil',partnerUid:'shalini',members:{senthil:true,shalini:true}}));
 });
 after(async () => { if (env) await env.cleanup(); });
 
-test('anonymous and verified outsider cannot read, write, list, or become members',async()=>{
+test('unauthenticated and unapproved identities cannot read, write, list, or become members',async()=>{
   for (const uid of [null,'outsider']) {
     await assertFails(get(ref(db(uid),family+'/members')));
     await assertFails(get(at(uid)));
@@ -45,37 +45,28 @@ test('anonymous and verified outsider cannot read, write, list, or become member
   await assertFails(set(ref(db('senthil'),family+'/members/outsider'),true));
 });
 
-test('unverified or missing-claim members cannot read or use any signaling write path',async()=>{
+test('approved identities can signal without email claims; unapproved authenticated users cannot',async()=>{
   for (const claim of [{email_verified:false}, {}]) {
-    const callerDb = env.authenticatedContext('senthil',claim).database();
-    const calleeDb = env.authenticatedContext('shalini',claim).database();
-    const caller = child => ref(callerDb,path+(child ? '/'+child : ''));
-    const callee = child => ref(calleeDb,path+(child ? '/'+child : ''));
+    const callerDb=env.authenticatedContext('senthil',claim).database();
+    const calleeDb=env.authenticatedContext('shalini',claim).database();
     await seedCall(null);
-    for (const memberDb of [callerDb,calleeDb]) {
-      await assertFails(get(ref(memberDb,family+'/members')));
-      await assertFails(get(ref(memberDb,path)));
-      await assertFails(set(ref(memberDb,family+'/members/senthil'),true));
-    }
-    await assertFails(set(caller(),call()));
-    await assertFails(set(callee(),call(id1,'shalini','senthil')));
-    await seedCall(call());
-    await assertFails(set(callee('status'),status(id1,'accepted')));
-    await seedCall(call(id1,'senthil','shalini',{status:status(id1,'accepted')}));
-    await assertFails(set(caller('offer'),sdp()));
-    await env.withSecurityRulesDisabled(ctx => set(ref(ctx.database(),path+'/offer'),sdp()));
-    await assertFails(set(callee('answer'),sdp()));
-    await assertFails(set(callee('restartRequested'),{callId:id1,revision:1}));
-    await assertFails(set(caller('ice/senthil/c00'),candidate()));
-    await assertFails(set(callee('ice/shalini/c00'),candidate()));
-    await assertFails(set(caller('status'),status(id1,'ended')));
-    await assertFails(set(callee('status'),status(id1,'ended')));
+    await assertSucceeds(get(ref(callerDb,family+'/members')));
+    await assertSucceeds(get(ref(calleeDb,family+'/members')));
+    await assertSucceeds(set(ref(callerDb,path),call()));
+    await assertSucceeds(set(ref(calleeDb,path+'/status'),status(id1,'accepted')));
+    await assertSucceeds(set(ref(callerDb,path+'/offer'),sdp()));
+    await assertSucceeds(set(ref(calleeDb,path+'/answer'),sdp()));
+    await assertSucceeds(set(ref(callerDb,path+'/ice/senthil/c00'),candidate()));
+    await assertSucceeds(set(ref(calleeDb,path+'/status'),status(id1,'ended')));
   }
+  const outsider=env.authenticatedContext('outsider',{email_verified:true}).database();
+  await assertFails(get(ref(outsider,path)));
+  await assertFails(set(ref(outsider,path),call(id2,'outsider','senthil')));
 });
 
-test('empty allowlist denies even verified accounts until owner approves UIDs',async()=>{
-  await env.withSecurityRulesDisabled(ctx => set(ref(ctx.database(),family+'/members'),null));
-  for (const uid of ['senthil','shalini','outsider']) {
+test('empty authoritative slots deny access even when legacy membership flags exist',async()=>{
+  await env.withSecurityRulesDisabled(ctx=>update(ref(ctx.database(),family),{ownerUid:null,partnerUid:null}));
+  for(const uid of ['senthil','shalini','outsider']) {
     await assertFails(get(ref(db(uid),family+'/members')));
     await assertFails(get(at(uid)));
     await assertFails(set(at(uid),call(id1,uid,uid==='senthil'?'shalini':'senthil')));
