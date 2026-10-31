@@ -1,0 +1,7 @@
+{
+  "apiKey": "COPY_FIREBASE_ANDROID_WEB_API_KEY",
+  "applicationId": "1:000000000000:android:REPLACE_ME",
+  "projectId": "YOUR_SPARK_PROJECT_ID",
+  "databaseUrl": "https://YOUR_DATABASE.REGION.firebasedatabase.app",
+  "familyId": "YOUR_PRIVATE_FAMILY_ID"
+}

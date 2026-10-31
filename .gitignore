@@ -1,0 +1,17 @@
+.gradle/
+**/build/
+local.properties
+app/src/main/assets/firebase-config.json
+**/google-services.json
+**/*.jks
+**/*.keystore
+**/service-account*.json
+**/*-adminsdk-*.json
+.env
+.env.*
+node_modules/
+firebase-debug.log*
+database-debug.log*
+ui-debug.log*
+.firebase/
+.DS_Store

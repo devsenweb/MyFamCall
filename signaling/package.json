@@ -1,0 +1,14 @@
+{
+  "name": "my-fam-call-signaling-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "firebase emulators:exec --only database --project demo-my-fam-call 'node --test test/*.test.mjs'",
+    "test:running-emulator": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "6.0.0",
+    "firebase": "13.1.0",
+    "firebase-tools": "15.34.2"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "families": {
+    "REPLACE_WITH_PRIVATE_FAMILY_ID": {
+      "members": {
+        "REPLACE_WITH_FIRST_FIREBASE_AUTH_UID": true,
+        "REPLACE_WITH_SECOND_FIREBASE_AUTH_UID": true
+      }
+    }
+  }
+}
