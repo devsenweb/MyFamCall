@@ -4,6 +4,11 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.pm.PackageManager;
+import android.content.Intent;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.util.Patterns;
+import java.io.InputStream;
 import android.graphics.Color;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
@@ -27,6 +32,11 @@ import java.util.List;
 public final class MainActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private AppConfig config;
+    private SetupPanel setup;
+    private boolean editingSetup,authBusy;
+    private int authEpoch,importEpoch;
+    private final java.util.concurrent.ExecutorService io=java.util.concurrent.Executors.newSingleThreadExecutor();
+    private String importFamily="";
     private FirebaseAuth auth;
     private SignalClient signal;
     private SignalClient.Call call;
@@ -43,9 +53,9 @@ public final class MainActivity extends Activity {
     private ConnectivityManager connectivity;
     private Network currentNetwork;
     private LinearLayout login, controls, home, incoming, videos;
-    private TextView status, networkStatus;
+    private TextView status, networkStatus, accountInfo, projectInfo;
     private EditText email, password;
-    private Button mute, camera, loginButton, audioCall, videoCall;
+    private Button mute, camera, loginButton, audioCall, videoCall,signupButton,changeConnection,retryApproval,copyUid,verifyEmail,checkEmail;
     private SurfaceViewRenderer localView, remoteView;
     private final List<Ice> localIce = new ArrayList<>();
     private final List<Ice> futureIce = new ArrayList<>();
@@ -69,8 +79,9 @@ public final class MainActivity extends Activity {
     }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); buildUi();
-        try { config = AppConfig.load(this); auth = FirebaseAuth.getInstance(config.firebase); }
-        catch (Exception e) { status.setText("Setup needed. Add your private Firebase configuration, apply the locked family rules, then rebuild. See README. No call service is configured."); login.setVisibility(View.GONE); }
+        try { config = AppConfig.load(this); if(config!=null)auth = FirebaseAuth.getInstance(config.firebase); }
+        catch (Exception e) { setup.showError("Saved setup could not be read. Import the family configuration again."); }
+        status.setText(config==null?"Connect once, then call your family.":"Sign in to your private family.");
         connectivity = (ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
         refresh();
     }
@@ -86,12 +97,25 @@ public final class MainActivity extends Activity {
         networkStatus = text("Checking network…",13); root.addView(networkStatus);
         TextView notice = text("Prototype: both phones must keep this app open. Leaving the app or locking the phone ends the call. Some networks cannot connect without a relay; no paid fallback is used.",13);
         notice.setPadding(0,dp(12),0,dp(16)); root.addView(notice);
-        login = column(root); email = new EditText(this); email.setHint("Family account email"); email.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS); login.addView(email);
-        password = new EditText(this); password.setHint("Password"); password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD); login.addView(password);
-        loginButton=button(login,"Sign in",v -> signIn());
-        home=column(root); audioCall=button(home,"Call family • audio",v -> permission(false,()->begin(false)));
+        setup=new SetupPanel(this,new SetupPanel.Listener(){
+            public void save(ConfigData data){configure(data);}
+            public void importFile(String family){importFamily=family;Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType("application/json");intent.addCategory(Intent.CATEGORY_OPENABLE);intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/json","text/plain","application/octet-stream"});try{startActivityForResult(intent,41);}catch(android.content.ActivityNotFoundException missing){setup.showError("No file picker available. Enter connection details instead.");}}
+            public void cancel(){importEpoch++;editingSetup=false;refresh();}
+        });root.addView(setup);
+        login = column(root); login.setTag("login.panel");projectInfo=text("",13);login.addView(projectInfo); email = new EditText(this); email.setHint("Family account email");email.setTag("login.email"); email.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS); login.addView(email);
+        password = new EditText(this); password.setHint("Password");password.setTag("login.password"); password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD); login.addView(password);
+        loginButton=button(login,"Sign in",v -> signIn());loginButton.setTag("login.submit");
+        signupButton=button(login,"Create my account",v->showSignup());signupButton.setTag("login.signup");
+        button(login,"Forgot password",v->resetPassword());
+        changeConnection=button(login,"Change family connection",v->{if(!authBusy){editingSetup=true;setup.populate(config==null?null:config.data);refresh();}});
+        home=column(root);home.setTag("home.panel");accountInfo=text("",14);accountInfo.setTag("home.account");home.addView(accountInfo);
+        verifyEmail=button(home,"Send verification email",v->sendVerification());
+        checkEmail=button(home,"I verified my email",v->checkVerification());
+        copyUid=button(home,"Copy my account ID for family approval",v->{if(auth!=null&&auth.getCurrentUser()!=null){ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);clipboard.setPrimaryClip(ClipData.newPlainText("My Fam Call account ID",auth.getCurrentUser().getUid()));Toast.makeText(this,"Account ID copied. Never share your password.",Toast.LENGTH_LONG).show();}});
+        retryApproval=button(home,"Check family approval",v->connectSignal());
+        audioCall=button(home,"Call family • audio",v -> permission(false,()->begin(false)));
         videoCall=button(home,"Call family • video",v -> permission(true,()->begin(true)));
-        button(home,"Sign out",v -> { end("Signed out."); disconnectSignal(); if(auth!=null)auth.signOut(); ownUid=null; peerUid=null; refresh(); });
+        button(home,"Sign out",v -> { end("Signed out."); disconnectSignal(); authEpoch++;if(auth!=null)auth.signOut(); ownUid=null; peerUid=null; refresh(); });
         incoming=column(root); button(incoming,"Answer • audio only",v -> permission(false,()->answer(false)));
         button(incoming,"Answer • with video",v -> permission(true,()->answer(true)));
         button(incoming,"Decline",v -> end("Call declined."));
@@ -110,22 +134,101 @@ public final class MainActivity extends Activity {
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
     private void refresh(){
         boolean logged=auth!=null&&auth.getCurrentUser()!=null;
-        login.setVisibility(config!=null&&!logged?View.VISIBLE:View.GONE);
+        setup.setVisibility(config==null||editingSetup?View.VISIBLE:View.GONE);
+        login.setVisibility(config!=null&&!logged&&!editingSetup?View.VISIBLE:View.GONE);
+        projectInfo.setText(config==null?"":"Private project: "+config.data.projectId);
+        loginButton.setEnabled(!authBusy);signupButton.setEnabled(!authBusy);changeConnection.setEnabled(!authBusy);
         boolean active=call!=null||outgoingPending;
-        home.setVisibility(logged&&!active?View.VISIBLE:View.GONE);
+        home.setVisibility(logged&&!active&&!editingSetup?View.VISIBLE:View.GONE);
+        boolean verified=logged&&auth.getCurrentUser().isEmailVerified();
+        accountInfo.setText(logged?"Signed in as "+auth.getCurrentUser().getEmail()+(!verified?"\nVerify your email first. Then copy your account ID for family approval.":(peerUid==null?"\nWaiting for family approval. Your account does not yet have calling access.":"\nPrivate family access approved.")):"");
+        verifyEmail.setVisibility(logged&&!verified?View.VISIBLE:View.GONE);checkEmail.setVisibility(logged&&!verified?View.VISIBLE:View.GONE);
+        copyUid.setVisibility(verified&&peerUid==null?View.VISIBLE:View.GONE);retryApproval.setVisibility(verified&&peerUid==null?View.VISIBLE:View.GONE);
         audioCall.setEnabled(peerUid!=null);videoCall.setEnabled(peerUid!=null);
         incoming.setVisibility(call!=null&&!call.isCaller(ownUid)&&"ringing".equals(call.state)?View.VISIBLE:View.GONE);
         controls.setVisibility(active?View.VISIBLE:View.GONE);videos.setVisibility(rtc!=null?View.VISIBLE:View.GONE);
         mute.setEnabled(rtc!=null);camera.setEnabled(rtc!=null);
     }
+    private void configure(ConfigData data){
+        if(authBusy||call!=null)return;
+        try{authEpoch++;disconnectSignal();if(auth!=null)auth.signOut();config=AppConfig.save(this,data);auth=FirebaseAuth.getInstance(config.firebase);editingSetup=false;peerUid=null;ownUid=null;status.setText("Family connection saved. Sign in or create your own account.");refresh();}
+        catch(Exception error){config=null;auth=null;editingSetup=true;refresh();setup.showError(error instanceof IllegalArgumentException?error.getMessage():"Could not save this configuration. Check the values and try again.");}
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);if(request!=41||result!=RESULT_OK||data==null||data.getData()==null)return;
+        final android.net.Uri uri=data.getData();final int attempt=++importEpoch;final String family=importFamily;setup.setImportBusy(true);
+        io.execute(()->{ConfigData parsed=null;String error=null;try(InputStream in=getContentResolver().openInputStream(uri)){parsed=AppConfig.readImport(in,family);}catch(Exception failure){error=failure instanceof IllegalArgumentException?failure.getMessage():"Could not read this file. Choose the Android google-services.json or the family configuration.";}
+            final ConfigData imported=parsed;final String message=error;main.post(()->{if(isDestroyed()||attempt!=importEpoch)return;setup.setImportBusy(false);if(message!=null)setup.showError(message);else configure(imported);});});
+    }
     private void signIn(){
-        if(auth==null)return; loginButton.setEnabled(false);status.setText("Signing in securely…");
-        String enteredPassword=password.getText().toString();password.setText("");
-        auth.signInWithEmailAndPassword(email.getText().toString().trim(),enteredPassword).addOnCompleteListener(task->{
-            loginButton.setEnabled(true);
-            if(!task.isSuccessful()){status.setText("Sign-in failed. Check the account and password. Only administrator-approved family accounts can call.");return;}
+        if(auth==null||authBusy)return;
+        String enteredEmail=email.getText().toString().trim(),enteredPassword=password.getText().toString();
+        if(!Patterns.EMAIL_ADDRESS.matcher(enteredEmail).matches()||enteredPassword.isEmpty()){status.setText("Enter your email address and password.");return;}
+        authBusy=true;refresh();status.setText("Signing in securely…");password.setText("");final FirebaseAuth expected=auth;final int attempt=++authEpoch;
+        expected.signInWithEmailAndPassword(enteredEmail,enteredPassword).addOnCompleteListener(task->{
+            if(isDestroyed()||auth!=expected||attempt!=authEpoch)return;authBusy=false;
+            if(!task.isSuccessful()){status.setText(authError(task.getException(),false));refresh();return;}
             if(foreground)connectSignal();refresh();
         });
+    }
+    private void showSignup(){
+        if(auth==null||authBusy)return;
+        LinearLayout fields=new LinearLayout(this);fields.setOrientation(LinearLayout.VERTICAL);fields.setPadding(dp(20),0,dp(20),0);
+        TextView info=text("Create your own login. Calling stays locked until the family owner approves your account ID. Enter your password only on this phone.",14);fields.addView(info);
+        EditText address=new EditText(this);address.setHint("Your email");address.setTag("signup.email");address.setText(email.getText());address.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);fields.addView(address);
+        EditText secret=new EditText(this);secret.setHint("Password (at least 12 characters)");secret.setTag("signup.password");secret.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);fields.addView(secret);
+        EditText confirm=new EditText(this);confirm.setHint("Confirm password");confirm.setTag("signup.confirm");confirm.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);fields.addView(confirm);
+        TextView error=text("",14);error.setTextColor(0xffa02727);error.setTag("signup.error");fields.addView(error);
+        ScrollView signupScroll=new ScrollView(this);signupScroll.addView(fields);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Create my private account").setView(signupScroll).setNegativeButton("Cancel",(d,w)->{secret.setText("");confirm.setText("");}).setPositiveButton("Create account",null).create();
+        dialog.show();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String name=address.getText().toString().trim(),pass=secret.getText().toString();
+            if(!Patterns.EMAIL_ADDRESS.matcher(name).matches()){error.setText("Enter a valid email address.");return;}
+            if(pass.length()<12){error.setText("Use a unique password with at least 12 characters.");return;}
+            if(!pass.equals(confirm.getText().toString())){error.setText("The passwords do not match.");return;}
+            final FirebaseAuth expected=auth;final int attempt=++authEpoch;authBusy=true;refresh();status.setText("Creating your sign-in account…");secret.setText("");confirm.setText("");dialog.dismiss();
+            expected.createUserWithEmailAndPassword(name,pass).addOnCompleteListener(task->{
+                if(isDestroyed()||auth!=expected||attempt!=authEpoch)return;authBusy=false;
+                if(!task.isSuccessful()){status.setText(authError(task.getException(),true));refresh();return;}
+                email.setText(name);sendVerification();if(foreground)connectSignal();refresh();
+            });
+        });
+    }
+    private String authError(Exception failure,boolean creating){
+        if(failure instanceof com.google.firebase.FirebaseNetworkException)return "No connection to family sign-in. Check Wi-Fi or mobile data and try again.";
+        if(failure instanceof com.google.firebase.FirebaseTooManyRequestsException)return "Too many attempts. Wait a little before trying again.";
+        if(failure instanceof com.google.firebase.auth.FirebaseAuthException){
+            String code=((com.google.firebase.auth.FirebaseAuthException)failure).getErrorCode();
+            if("ERROR_OPERATION_NOT_ALLOWED".equals(code))return "Email/password sign-in is not enabled for the family project yet.";
+            if("ERROR_EMAIL_ALREADY_IN_USE".equals(code))return "This email already has an account. Sign in or use Forgot password.";
+            if("ERROR_WEAK_PASSWORD".equals(code))return "Choose a stronger, unique password and try again.";
+            if("ERROR_INVALID_API_KEY".equals(code)||"ERROR_APP_NOT_AUTHORIZED".equals(code))return "Family sign-in configuration was rejected. Check the project connection.";
+        }
+        return creating?"Account could not be created. Check the email/password and try again.":"Sign-in failed. Check your email and password, or use Forgot password.";
+    }
+    private void sendVerification(){
+        if(auth==null||auth.getCurrentUser()==null||auth.getCurrentUser().isEmailVerified())return;
+        final FirebaseAuth expected=auth;verifyEmail.setEnabled(false);
+        auth.getCurrentUser().sendEmailVerification().addOnCompleteListener(task->{
+            if(isDestroyed()||auth!=expected)return;verifyEmail.setEnabled(true);
+            status.setText(task.isSuccessful()?"Verification email sent. Open its link, then tap I verified my email.":"Could not send verification yet. Check your connection or wait before trying again.");
+        });
+    }
+    private void checkVerification(){
+        if(auth==null||auth.getCurrentUser()==null)return;final FirebaseAuth expected=auth;final String uid=auth.getCurrentUser().getUid();checkEmail.setEnabled(false);
+        auth.getCurrentUser().reload().addOnCompleteListener(task->{
+            if(isDestroyed()||auth!=expected||auth.getCurrentUser()==null||!uid.equals(auth.getCurrentUser().getUid()))return;checkEmail.setEnabled(true);
+            if(!task.isSuccessful()){status.setText("Could not check verification. Reconnect and try again.");return;}
+            if(!auth.getCurrentUser().isEmailVerified()){status.setText("Email is not verified yet. Open the verification link in your inbox, then try again.");refresh();return;}
+            auth.getCurrentUser().getIdToken(true).addOnCompleteListener(token->{if(isDestroyed()||auth!=expected)return;if(token.isSuccessful()&&foreground)connectSignal();else status.setText("Email verified. Reconnect to check family access.");refresh();});
+        });
+    }
+    private void resetPassword(){
+        if(auth==null||authBusy)return;String address=email.getText().toString().trim();
+        if(!Patterns.EMAIL_ADDRESS.matcher(address).matches()){status.setText("Enter your email address first, then tap Forgot password.");return;}
+        new AlertDialog.Builder(this).setTitle("Reset password?").setMessage("Send a password-reset email to "+address+"?").setNegativeButton("Cancel",null).setPositiveButton("Send email",(d,w)->{
+            FirebaseAuth expected=auth;expected.sendPasswordResetEmail(address).addOnCompleteListener(task->{if(!isDestroyed()&&auth==expected)status.setText(task.isSuccessful()?"If this address is registered, check its inbox for the reset link.":"Could not request a reset. Check your connection and try again.");});
+        }).show();
     }
     @Override protected void onStart(){super.onStart();foreground=true;
         connectivity.registerDefaultNetworkCallback(networkCallback);
@@ -133,12 +236,14 @@ public final class MainActivity extends Activity {
     }
     private void connectSignal(){
         disconnectSignal(); if(auth==null||auth.getCurrentUser()==null)return;
-        ownUid=auth.getCurrentUser().getUid();peerUid=null;status.setText("Checking private family membership…");
+        ownUid=auth.getCurrentUser().getUid();peerUid=null;
+        if(!auth.getCurrentUser().isEmailVerified()){status.setText("Check your inbox to verify your email before calling.");refresh();return;}
+        status.setText("Checking private family membership…");
         signal=new SignalClient(FirebaseDatabase.getInstance(config.firebase),config.familyId,ownUid,signals);
         final SignalClient expected=signal;
         signal.loadPeer((peer,error)->{
             if(signal!=expected||!foreground)return;
-            if(error!=null){status.setText(error);refresh();return;}
+            if(error!=null){status.setText("Account signed in. Family calling is still locked until the owner approves both account IDs.");refresh();return;}
             peerUid=peer;status.setText("Ready when you both are. Open this app on both phones.");signal.listen();refresh();
         });
     }
@@ -280,8 +385,8 @@ public final class MainActivity extends Activity {
         call=null;outgoingPending=false;revision=0;negotiating=false;sdpPublished=false;connectedMedia=false;recoveryPending=false;localIce.clear();futureIce.clear();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);status.setText(message);refresh();
     }
-    @Override protected void onStop(){foreground=false;permissionAction=null;end("App left the foreground. Calls stop for privacy; reopen on both phones to call again.");disconnectSignal();
+    @Override protected void onStop(){foreground=false;permissionAction=null;if(call!=null||outgoingPending||rtc!=null)end("Call stopped because the app left the foreground. Reopen on both phones to call again.");disconnectSignal();
         try{connectivity.unregisterNetworkCallback(networkCallback);}catch(IllegalArgumentException ignored){}super.onStop();
     }
-    @Override protected void onDestroy(){main.removeCallbacksAndMessages(null);super.onDestroy();}
+    @Override protected void onDestroy(){importEpoch++;io.shutdownNow();main.removeCallbacksAndMessages(null);super.onDestroy();}
 }

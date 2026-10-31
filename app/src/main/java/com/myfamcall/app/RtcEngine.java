@@ -3,6 +3,7 @@ package com.myfamcall.app;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import org.webrtc.*;
 import org.webrtc.audio.JavaAudioDeviceModule;
 import java.util.ArrayList;
@@ -23,6 +24,7 @@ public final class RtcEngine implements AutoCloseable {
     private final Context context;
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final MediaCleanup cleanup = new MediaCleanup();
     private final EglBase egl = EglBase.create();
     private PeerConnectionFactory factory;
     private PeerConnection peer;
@@ -62,11 +64,15 @@ public final class RtcEngine implements AutoCloseable {
                     public void onWebRtcAudioRecordStartError(JavaAudioDeviceModule.AudioRecordStartErrorCode code, String error) { fail("Microphone could not start."); }
                     public void onWebRtcAudioRecordError(String error) { fail("Microphone interrupted."); }
                 }).createAudioDeviceModule();
-        factory = PeerConnectionFactory.builder().setAudioDeviceModule(adm)
-                .setVideoEncoderFactory(new DefaultVideoEncoderFactory(egl.getEglBaseContext(), true, true))
-                .setVideoDecoderFactory(new DefaultVideoDecoderFactory(egl.getEglBaseContext()))
-                .createPeerConnectionFactory();
-        adm.release();
+        try {
+            factory = PeerConnectionFactory.builder().setAudioDeviceModule(adm)
+                    .setVideoEncoderFactory(new DefaultVideoEncoderFactory(egl.getEglBaseContext(), true, true))
+                    .setVideoDecoderFactory(new DefaultVideoDecoderFactory(egl.getEglBaseContext()))
+                    .createPeerConnectionFactory();
+        } finally {
+            // The factory retains its own reference. Release ours even when creation fails.
+            adm.release();
+        }
         // No TURN. These public STUN servers provide address discovery, not a media relay/SLA.
         PeerConnection.RTCConfiguration config = new PeerConnection.RTCConfiguration(Collections.singletonList(
                 PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()));
@@ -169,6 +175,8 @@ public final class RtcEngine implements AutoCloseable {
     public boolean setVideoEnabled(boolean enabled) {
         if (closed) return false;
         try {
+            // Stop sending first: a slow or failed hardware stop must not keep video enabled.
+            if (!enabled) video.setEnabled(false);
             if (enabled && camera == null) {
                 CameraEnumerator cameras = Camera2Enumerator.isSupported(context) ? new Camera2Enumerator(context) : new Camera1Enumerator(true);
                 String chosen = null;
@@ -235,18 +243,38 @@ public final class RtcEngine implements AutoCloseable {
     };
     private static double number(Object value) { return value instanceof Number ? ((Number)value).doubleValue() : 0; }
     public void close() {
-        if (closed) return; closed = true; main.removeCallbacksAndMessages(null);
-        if (camera != null) {
-            if (capturing) try { camera.stopCapture(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            camera.dispose();
+        if (closed) return;
+        closed = true;
+        main.removeCallbacksAndMessages(null);
+        // Separate each release: one faulty camera/driver must not keep the microphone alive,
+        // prevent PeerConnection disposal, or leave an EGL/capture thread behind.
+        List<Exception> failures = cleanup.releaseAll(
+                () -> { if (audio != null) audio.setEnabled(false); },
+                () -> { if (video != null) video.setEnabled(false); },
+                () -> {
+                    if (camera != null && capturing) {
+                        try { camera.stopCapture(); } finally { capturing = false; }
+                    }
+                },
+                () -> { if (camera != null) camera.dispose(); },
+                () -> { if (remoteVideo != null) remoteVideo.removeSink(remoteView); },
+                () -> { if (video != null) video.removeSink(localView); },
+                () -> { if (peer != null) peer.close(); },
+                () -> { if (peer != null) peer.dispose(); },
+                () -> { if (audio != null) audio.dispose(); },
+                () -> { if (video != null) video.dispose(); },
+                () -> { if (audioSource != null) audioSource.dispose(); },
+                () -> { if (videoSource != null) videoSource.dispose(); },
+                () -> { if (cameraThread != null) cameraThread.dispose(); },
+                () -> { if (factory != null) factory.dispose(); },
+                () -> { if (localInitialized) localView.release(); },
+                () -> { if (remoteInitialized) remoteView.release(); },
+                () -> egl.release()
+        );
+        pendingIce.clear(); gatheredIce.clear(); localUfrags.clear();
+        for (Exception failure : failures) {
+            // Never log signaling, addresses, microphone data, frames, or exception messages.
+            Log.w("MyFamCall", "Media cleanup failure: " + failure.getClass().getSimpleName());
         }
-        if (remoteVideo != null) remoteVideo.removeSink(remoteView);
-        if (video != null) video.removeSink(localView);
-        if (peer != null) { peer.close(); peer.dispose(); }
-        if (audio != null) audio.dispose(); if (video != null) video.dispose();
-        if (audioSource != null) audioSource.dispose(); if (videoSource != null) videoSource.dispose();
-        if (cameraThread != null) cameraThread.dispose();
-        if (factory != null) factory.dispose();
-        if(localInitialized)localView.release(); if(remoteInitialized)remoteView.release(); egl.release(); pendingIce.clear();
     }
 }

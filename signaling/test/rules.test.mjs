@@ -9,7 +9,7 @@ const family = 'families/private-family';
 const path = `${family}/call`;
 const id1 = '11111111-1111-4111-a111-111111111111';
 const id2 = '22222222-2222-4222-a222-222222222222';
-const db = uid => uid ? env.authenticatedContext(uid).database() : env.unauthenticatedContext().database();
+const db = uid => uid ? env.authenticatedContext(uid, { email_verified: true }).database() : env.unauthenticatedContext().database();
 const at = (uid, child = '') => ref(db(uid), path + (child ? '/' + child : ''));
 function call(id = id1, caller = 'senthil', callee = 'shalini', options = {}) {
   const now = Date.now();
@@ -32,7 +32,7 @@ beforeEach(async () => {
 });
 after(async () => { if (env) await env.cleanup(); });
 
-test('anonymous and outsider cannot read, write, list, or become members',async()=>{
+test('anonymous and verified outsider cannot read, write, list, or become members',async()=>{
   for (const uid of [null,'outsider']) {
     await assertFails(get(ref(db(uid),family+'/members')));
     await assertFails(get(at(uid)));
@@ -43,6 +43,44 @@ test('anonymous and outsider cannot read, write, list, or become members',async(
   await assertFails(get(ref(db('senthil'),family)));
   await assertSucceeds(get(ref(db('senthil'),family+'/members')));
   await assertFails(set(ref(db('senthil'),family+'/members/outsider'),true));
+});
+
+test('unverified or missing-claim members cannot read or use any signaling write path',async()=>{
+  for (const claim of [{email_verified:false}, {}]) {
+    const callerDb = env.authenticatedContext('senthil',claim).database();
+    const calleeDb = env.authenticatedContext('shalini',claim).database();
+    const caller = child => ref(callerDb,path+(child ? '/'+child : ''));
+    const callee = child => ref(calleeDb,path+(child ? '/'+child : ''));
+    await seedCall(null);
+    for (const memberDb of [callerDb,calleeDb]) {
+      await assertFails(get(ref(memberDb,family+'/members')));
+      await assertFails(get(ref(memberDb,path)));
+      await assertFails(set(ref(memberDb,family+'/members/senthil'),true));
+    }
+    await assertFails(set(caller(),call()));
+    await assertFails(set(callee(),call(id1,'shalini','senthil')));
+    await seedCall(call());
+    await assertFails(set(callee('status'),status(id1,'accepted')));
+    await seedCall(call(id1,'senthil','shalini',{status:status(id1,'accepted')}));
+    await assertFails(set(caller('offer'),sdp()));
+    await env.withSecurityRulesDisabled(ctx => set(ref(ctx.database(),path+'/offer'),sdp()));
+    await assertFails(set(callee('answer'),sdp()));
+    await assertFails(set(callee('restartRequested'),{callId:id1,revision:1}));
+    await assertFails(set(caller('ice/senthil/c00'),candidate()));
+    await assertFails(set(callee('ice/shalini/c00'),candidate()));
+    await assertFails(set(caller('status'),status(id1,'ended')));
+    await assertFails(set(callee('status'),status(id1,'ended')));
+  }
+});
+
+test('empty allowlist denies even verified accounts until owner approves UIDs',async()=>{
+  await env.withSecurityRulesDisabled(ctx => set(ref(ctx.database(),family+'/members'),null));
+  for (const uid of ['senthil','shalini','outsider']) {
+    await assertFails(get(ref(db(uid),family+'/members')));
+    await assertFails(get(at(uid)));
+    await assertFails(set(at(uid),call(id1,uid,uid==='senthil'?'shalini':'senthil')));
+    await assertFails(set(ref(db(uid),family+'/members/'+uid),true));
+  }
 });
 
 test('family caller creates, callee accepts, both can end; terminal cannot resurrect',async()=>{
